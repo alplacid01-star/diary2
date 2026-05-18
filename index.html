@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>나의 일기장</title>
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="나의 일기장">
+<meta name="theme-color" content="#2c1f14">
+<meta name="description" content="나만의 소중한 일기장">
+
+<script>
+// ── PWA Manifest & Icon 인라인 생성 ──
+const iconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#2c1f14"/>
+  <rect x="108" y="92" width="272" height="352" rx="12" fill="#faf6f0" stroke="#c8a96e" stroke-width="4"/>
+  <rect x="120" y="80" width="272" height="352" rx="12" fill="#f5ede0" stroke="#c8a96e" stroke-width="3" opacity="0.7"/>
+  <rect x="108" y="92" width="10" height="352" rx="4" fill="#c8a96e" opacity="0.5"/>
+  <line x1="148" y1="190" x2="348" y2="190" stroke="#e8ddd0" stroke-width="3"/>
+  <line x1="148" y1="220" x2="348" y2="220" stroke="#e8ddd0" stroke-width="3"/>
+  <line x1="148" y1="250" x2="320" y2="250" stroke="#e8ddd0" stroke-width="3"/>
+  <text x="234" y="165" font-family="serif" font-size="56" font-weight="bold" fill="#8b4513" text-anchor="middle">일기</text>
+  <circle cx="356" cy="345" r="55" fill="#8b4513"/>
+  <text x="356" y="362" font-family="serif" font-size="48" fill="white" text-anchor="middle">✎</text>
+</svg>`;
+
+window.addEventListener('DOMContentLoaded', () => {
+  const iconBlob = new Blob([iconSVG], {type:'image/svg+xml'});
+  const iconUrl = URL.createObjectURL(iconBlob);
+
+  const manifest = {
+    name: "나의 일기장",
+    short_name: "일기장",
+    description: "나만의 소중한 일기장",
+    start_url: "./",
+    display: "standalone",
+    background_color: "#2c1f14",
+    theme_color: "#2c1f14",
+    orientation: "portrait",
+    icons: [
+      {src: iconUrl, sizes:"192x192", type:"image/svg+xml", purpose:"any maskable"},
+      {src: iconUrl, sizes:"512x512", type:"image/svg+xml", purpose:"any maskable"}
+    ]
+  };
+  const mBlob = new Blob([JSON.stringify(manifest)], {type:'application/json'});
+  const mLink = document.createElement('link');
+  mLink.rel = 'manifest'; mLink.href = URL.createObjectURL(mBlob);
+  document.head.appendChild(mLink);
+
+  const aLink = document.createElement('link');
+  aLink.rel = 'apple-touch-icon'; aLink.href = iconUrl;
+  document.head.appendChild(aLink);
+});
+
+// ── Service Worker ──
+if ('serviceWorker' in navigator) {
+  const sw = `
+    self.addEventListener('install', () => self.skipWaiting());
+    self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+    self.addEventListener('fetch', e => e.respondWith(
+      caches.match(e.request).then(r => r || fetch(e.request).catch(() => new Response('')))
+    ));
+  `;
+  const swBlob = new Blob([sw], {type:'application/javascript'});
+  navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(()=>{});
+}
+</script>
+
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+  :root {
+    --ink: #1a1410; --ink-light: #4a3f35;
+    --paper: #faf6f0; --paper-warm: #f5ede0; --paper-line: #e8ddd0;
+    --accent: #8b4513; --accent-light: #c47a3a; --gold: #c8a96e; --fade: #a89880;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+  body {
+    background: #2c1f14;
+    min-height: 100dvh;
+    font-family: 'Nanum Gothic', sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 20px;
+    background-image: radial-gradient(ellipse at 20% 50%, #3d2710 0%, transparent 60%),
+                      radial-gradient(ellipse at 80% 20%, #1a0e08 0%, transparent 50%);
+  }
+
+  /* Install Banner */
+  #installBanner {
+    display: none; position: fixed; bottom:0; left:0; right:0;
+    background: #1e120a; border-top: 1px solid rgba(200,169,110,0.3);
+    padding: 14px 20px; z-index: 999;
+    align-items: center; gap: 12px;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+  }
+  #installBanner.show { display: flex; }
+  .banner-icon { width:44px; height:44px; background:#2c1f14; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0; border:1px solid rgba(200,169,110,0.2); }
+  .banner-text { flex:1; }
+  .banner-text strong { display:block; color:var(--gold); font-size:0.85rem; margin-bottom:2px; }
+  .banner-text span { color:var(--fade); font-size:0.72rem; }
+  .banner-install { background:var(--accent); color:white; border:none; padding:8px 16px; border-radius:6px; font-family:'Nanum Gothic',sans-serif; font-size:0.8rem; font-weight:700; cursor:pointer; white-space:nowrap; }
+  .banner-close { background:none; border:none; color:var(--fade); font-size:1.2rem; cursor:pointer; padding:4px; flex-shrink:0; }
+
+  /* Header */
+  .app-header { text-align:center; margin-bottom:36px; color:var(--gold); }
+  .app-header h1 { font-size:2.2rem; font-weight:800; letter-spacing:0.08em; text-shadow:0 2px 8px rgba(200,169,110,0.3); }
+  .app-header .subtitle { font-size:0.75rem; letter-spacing:0.3em; color:var(--fade); margin-top:6px; text-transform:uppercase; }
+
+  /* Layout */
+  .container { width:100%; max-width:860px; display:grid; grid-template-columns:260px 1fr; border-radius:4px; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 0 1px rgba(200,169,110,0.2); }
+
+  /* Sidebar */
+  .sidebar { background:#1e120a; border-right:1px solid rgba(200,169,110,0.15); display:flex; flex-direction:column; min-height:600px; }
+  .sidebar-header { padding:20px 16px 14px; border-bottom:1px solid rgba(200,169,110,0.1); }
+  .sidebar-header h2 { color:var(--gold); font-size:0.9rem; letter-spacing:0.15em; margin-bottom:12px; }
+  .search-box { width:100%; background:rgba(255,255,255,0.04); border:1px solid rgba(200,169,110,0.15); border-radius:3px; padding:7px 10px; color:var(--paper); font-size:0.78rem; font-family:'Nanum Gothic',sans-serif; outline:none; transition:border-color 0.2s; }
+  .search-box::placeholder { color:var(--fade); }
+  .search-box:focus { border-color:rgba(200,169,110,0.4); }
+  .entries-list { flex:1; overflow-y:auto; padding:8px 0; }
+  .entries-list::-webkit-scrollbar { width:3px; }
+  .entries-list::-webkit-scrollbar-thumb { background:rgba(200,169,110,0.2); border-radius:2px; }
+  .entry-item { padding:10px 16px; cursor:pointer; border-left:2px solid transparent; transition:all 0.15s; border-bottom:1px solid rgba(255,255,255,0.03); }
+  .entry-item:hover { background:rgba(200,169,110,0.06); border-left-color:rgba(200,169,110,0.3); }
+  .entry-item.active { background:rgba(200,169,110,0.1); border-left-color:var(--gold); }
+  .entry-item .date-label { font-size:0.72rem; color:var(--gold); margin-bottom:3px; }
+  .entry-item .preview { font-size:0.75rem; color:var(--fade); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.4; }
+  .no-entries { padding:30px 16px; text-align:center; color:var(--fade); font-size:0.75rem; line-height:1.8; }
+  .sidebar-footer { padding:14px 16px; border-top:1px solid rgba(200,169,110,0.1); display:flex; flex-direction:column; gap:8px; }
+  .btn-new { width:100%; background:var(--accent); color:var(--paper); border:none; padding:9px 12px; border-radius:3px; font-family:'Nanum Gothic',sans-serif; font-size:0.85rem; cursor:pointer; transition:background 0.2s; }
+  .btn-new:hover { background:var(--accent-light); }
+  .btn-pdf { width:100%; background:transparent; color:var(--gold); border:1px solid rgba(200,169,110,0.3); padding:8px 12px; border-radius:3px; font-family:'Nanum Gothic',sans-serif; font-size:0.75rem; cursor:pointer; transition:all 0.2s; }
+  .btn-pdf:hover { background:rgba(200,169,110,0.08); border-color:var(--gold); }
+  .entry-count-badge { display:inline-block; background:rgba(200,169,110,0.15); color:var(--gold); font-size:0.68rem; padding:2px 8px; border-radius:10px; margin-left:8px; }
+
+  /* Editor */
+  .editor-pane { background:var(--paper); display:flex; flex-direction:column; position:relative; }
+  .editor-pane::before { content:''; position:absolute; inset:0; background-image:repeating-linear-gradient(to bottom, transparent 0px, transparent 31px, var(--paper-line) 31px, var(--paper-line) 32px); background-position:0 60px; pointer-events:none; opacity:0.5; }
+  .editor-header { padding:24px 36px 16px; border-bottom:1px solid var(--paper-line); position:relative; z-index:1; background:var(--paper); }
+  .date-display { font-size:1.5rem; color:var(--ink); font-weight:700; margin-bottom:4px; }
+  .weekday-display { font-size:0.75rem; color:var(--fade); letter-spacing:0.15em; }
+  .weather-mood { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  .mood-btn { background:none; border:1px solid var(--paper-line); border-radius:20px; padding:4px 12px; font-size:0.72rem; color:var(--ink-light); cursor:pointer; transition:all 0.15s; font-family:'Nanum Gothic',sans-serif; }
+  .mood-btn.selected { background:var(--accent); border-color:var(--accent); color:white; }
+  .editor-body { flex:1; padding:20px 36px; position:relative; z-index:1; display:flex; flex-direction:column; gap:10px; }
+  .title-input { width:100%; background:none; border:none; outline:none; font-family:'Nanum Gothic',sans-serif; font-size:1.15rem; font-weight:700; color:var(--ink); letter-spacing:-0.01em; border-bottom:1px solid var(--paper-line); padding-bottom:8px; margin-bottom:4px; }
+  .title-input::placeholder { color:var(--paper-line); }
+  .content-textarea { flex:1; width:100%; background:none; border:none; outline:none; font-family:'Nanum Gothic',sans-serif; font-size:1rem; color:var(--ink); line-height:2.0; resize:none; min-height:380px; letter-spacing:-0.01em; }
+  .content-textarea::placeholder { color:#ccc8c0; }
+  .editor-footer { padding:14px 36px; border-top:1px solid var(--paper-line); display:flex; justify-content:space-between; align-items:center; background:var(--paper-warm); position:relative; z-index:1; }
+  .char-count { font-size:0.72rem; color:var(--fade); }
+  .footer-actions { display:flex; gap:10px; align-items:center; }
+  .btn-delete { background:none; border:1px solid #e0c8c0; color:#c88070; padding:7px 16px; border-radius:3px; font-size:0.78rem; cursor:pointer; font-family:'Nanum Gothic',sans-serif; transition:all 0.2s; }
+  .btn-save { background:var(--ink); color:var(--paper); border:none; padding:8px 22px; border-radius:3px; font-family:'Nanum Gothic',sans-serif; font-size:0.85rem; cursor:pointer; transition:background 0.2s; }
+  .btn-save.saved { background:#4a7c59; }
+
+  /* Toast */
+  .toast { position:fixed; bottom:30px; left:50%; transform:translateX(-50%) translateY(20px); background:#1a1410; color:var(--gold); padding:10px 24px; border-radius:3px; font-size:0.82rem; opacity:0; transition:all 0.3s; border:1px solid rgba(200,169,110,0.3); z-index:500; pointer-events:none; white-space:nowrap; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  /* Modal */
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:200; align-items:center; justify-content:center; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:var(--paper); border-radius:4px; padding:32px; width:360px; max-width:90vw; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
+  .modal h3 { font-size:1.1rem; color:var(--ink); margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid var(--paper-line); }
+  .modal label { font-size:0.78rem; color:var(--ink-light); display:block; margin-bottom:6px; margin-top:14px; }
+  .modal select { width:100%; padding:8px 10px; border:1px solid var(--paper-line); border-radius:3px; font-family:'Nanum Gothic',sans-serif; font-size:0.82rem; color:var(--ink); background:white; outline:none; }
+  .modal-info { margin-top:14px; padding:10px 14px; background:#f0f4f0; border-radius:3px; font-size:0.75rem; color:var(--ink-light); line-height:1.7; }
+  .modal-actions { display:flex; gap:10px; margin-top:22px; }
+  .modal-cancel { flex:1; background:none; border:1px solid var(--paper-line); padding:9px; border-radius:3px; cursor:pointer; font-family:'Nanum Gothic',sans-serif; font-size:0.82rem; color:var(--ink-light); }
+  .modal-confirm { flex:2; background:var(--ink); color:var(--paper); border:none; padding:9px; border-radius:3px; cursor:pointer; font-family:'Nanum Gothic',sans-serif; font-size:0.85rem; }
+
+  @media (max-width:640px) {
+    body { padding:16px 8px 80px; }
+    .container { grid-template-columns:1fr; }
+    .sidebar { min-height:auto; max-height:220px; }
+    .editor-header { padding:16px 20px 12px; }
+    .editor-body { padding:14px 20px; }
+    .editor-footer { padding:12px 20px; }
+    .content-textarea { min-height:260px; }
+    .app-header { margin-bottom:20px; }
+    .app-header h1 { font-size:1.6rem; }
+  }
+</style>
+</head>
+<body>
+
+<div id="installBanner">
+  <div class="banner-icon">📔</div>
+  <div class="banner-text">
+    <strong>홈 화면에 추가하기</strong>
+    <span>앱처럼 바로 열 수 있어요</span>
+  </div>
+  <button class="banner-install" id="installBtn">설치</button>
+  <button class="banner-close" onclick="dismissBanner()">✕</button>
+</div>
+
+<div class="app-header">
+  <h1>나의 일기장</h1>
+  <div class="subtitle">My Private Diary</div>
+</div>
+
+<div class="container">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>기록 목록 <span class="entry-count-badge" id="entryCount">0</span></h2>
+      <input class="search-box" type="text" id="searchBox" placeholder="검색..." oninput="filterEntries()">
+    </div>
+    <div class="entries-list" id="entriesList">
+      <div class="no-entries">아직 기록이 없어요.<br>새 일기를 써보세요 ✍️</div>
+    </div>
+    <div class="sidebar-footer">
+      <button class="btn-new" onclick="newEntry()">+ 새 일기 쓰기</button>
+      <button class="btn-pdf" onclick="openPdfModal()">📄 PDF로 내보내기</button>
+    </div>
+  </div>
+
+  <div class="editor-pane">
+    <div class="editor-header">
+      <div class="date-display" id="dateDisplay"></div>
+      <div class="weekday-display" id="weekdayDisplay"></div>
+      <div class="weather-mood">
+        <button class="mood-btn" onclick="toggleMood(this,'☀️ 맑음')">☀️ 맑음</button>
+        <button class="mood-btn" onclick="toggleMood(this,'🌥️ 흐림')">🌥️ 흐림</button>
+        <button class="mood-btn" onclick="toggleMood(this,'🌧️ 비')">🌧️ 비</button>
+        <button class="mood-btn" onclick="toggleMood(this,'😊 좋음')">😊 좋음</button>
+        <button class="mood-btn" onclick="toggleMood(this,'😐 보통')">😐 보통</button>
+        <button class="mood-btn" onclick="toggleMood(this,'😔 우울')">😔 우울</button>
+      </div>
+    </div>
+    <div class="editor-body">
+      <input class="title-input" id="titleInput" type="text" placeholder="제목 (선택사항)">
+      <textarea class="content-textarea" id="contentTextarea" placeholder="오늘 하루를 기록해보세요..."></textarea>
+    </div>
+    <div class="editor-footer">
+      <div class="char-count" id="charCount">0자</div>
+      <div class="footer-actions">
+        <button class="btn-delete" id="deleteBtn" onclick="deleteEntry()" style="display:none">삭제</button>
+        <button class="btn-save" id="saveBtn" onclick="saveEntry()">저장하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="pdfModal">
+  <div class="modal">
+    <h3>📄 PDF로 내보내기</h3>
+    <label>기간 선택</label>
+    <select id="pdfRange">
+      <option value="1">최근 1개월</option>
+      <option value="3">최근 3개월</option>
+      <option value="6" selected>최근 6개월</option>
+      <option value="12">최근 12개월</option>
+      <option value="all">전체 기록</option>
+    </select>
+    <div class="modal-info" id="pdfInfo"></div>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closePdfModal()">취소</button>
+      <button class="modal-confirm" onclick="exportPDF()">PDF 생성</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── PWA Install prompt ──────────────────────────────────
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('installBanner').classList.add('show');
+});
+document.getElementById('installBtn').addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  document.getElementById('installBanner').classList.remove('show');
+  if (outcome === 'accepted') showToast('홈 화면에 추가되었어요! 📔');
+});
+window.addEventListener('appinstalled', () => document.getElementById('installBanner').classList.remove('show'));
+function dismissBanner() { document.getElementById('installBanner').classList.remove('show'); deferredPrompt = null; }
+
+// ── App State ──────────────────────────────────────────
+let entries = JSON.parse(localStorage.getItem('diary_entries') || '[]');
+let currentId = null;
+let selectedMoods = [];
+const WEEKDAYS = ['일요일','월요일','화요일','수요일','목요일','금요일','토요일'];
+const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+
+function init() {
+  renderHeader(new Date());
+  renderList();
+  updateCharCount();
+  document.getElementById('contentTextarea').addEventListener('input', updateCharCount);
+}
+
+function renderHeader(date) {
+  document.getElementById('dateDisplay').textContent = `${date.getFullYear()}년 ${MONTHS[date.getMonth()]} ${date.getDate()}일`;
+  document.getElementById('weekdayDisplay').textContent = WEEKDAYS[date.getDay()];
+}
+
+function renderList(filter = '') {
+  const list = document.getElementById('entriesList');
+  const sorted = [...entries].sort((a,b) => b.dateKey.localeCompare(a.dateKey));
+  const filtered = filter ? sorted.filter(e => e.content.includes(filter)||e.title.includes(filter)||e.dateLabel.includes(filter)) : sorted;
+  document.getElementById('entryCount').textContent = entries.length;
+  if (!filtered.length) {
+    list.innerHTML = `<div class="no-entries">${filter ? '검색 결과가 없어요.' : '아직 기록이 없어요.<br>새 일기를 써보세요 ✍️'}</div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(e => `
+    <div class="entry-item ${e.id===currentId?'active':''}" onclick="loadEntry('${e.id}')">
+      <div class="date-label">${e.dateLabel} ${e.moods&&e.moods.length?e.moods[0].split(' ')[0]:''}</div>
+      <div class="preview">${e.title||e.content.replace(/\n/g,' ').trim()||'(내용 없음)'}</div>
+    </div>`).join('');
+}
+
+function filterEntries() { renderList(document.getElementById('searchBox').value.trim()); }
+
+function newEntry() {
+  currentId = null; selectedMoods = [];
+  document.getElementById('titleInput').value = '';
+  document.getElementById('contentTextarea').value = '';
+  document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('deleteBtn').style.display = 'none';
+  resetSaveBtn(); renderHeader(new Date()); updateCharCount();
+  renderList(document.getElementById('searchBox').value.trim());
+  document.getElementById('contentTextarea').focus();
+}
+
+function loadEntry(id) {
+  const entry = entries.find(e => e.id===id);
+  if (!entry) return;
+  currentId = id; selectedMoods = entry.moods||[];
+  const [y,m,d] = entry.dateKey.split('-').map(Number);
+  renderHeader(new Date(y,m-1,d));
+  document.getElementById('titleInput').value = entry.title||'';
+  document.getElementById('contentTextarea').value = entry.content||'';
+  document.querySelectorAll('.mood-btn').forEach(b => b.classList.toggle('selected', selectedMoods.includes(b.textContent.trim())));
+  document.getElementById('deleteBtn').style.display = 'inline-flex';
+  resetSaveBtn(); updateCharCount();
+  renderList(document.getElementById('searchBox').value.trim());
+}
+
+function saveEntry() {
+  const content = document.getElementById('contentTextarea').value.trim();
+  const title = document.getElementById('titleInput').value.trim();
+  if (!content && !title) { showToast('내용을 먼저 입력해주세요.'); return; }
+  const now = new Date();
+  const dateKey = toDateKey(now);
+  const dateLabel = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+  if (currentId) {
+    const idx = entries.findIndex(e => e.id===currentId);
+    if (idx!==-1) entries[idx] = {...entries[idx], title, content, moods:selectedMoods, updatedAt:now.toISOString()};
+  } else {
+    const newId = 'diary_'+Date.now();
+    entries.push({id:newId, dateKey, dateLabel, title, content, moods:selectedMoods, createdAt:now.toISOString()});
+    currentId = newId;
+  }
+  persist(); renderList(document.getElementById('searchBox').value.trim());
+  document.getElementById('deleteBtn').style.display = 'inline-flex';
+  const btn = document.getElementById('saveBtn');
+  btn.textContent = '저장됨 ✓'; btn.classList.add('saved');
+  setTimeout(resetSaveBtn, 2000);
+  showToast('일기가 저장되었어요.');
+}
+
+function resetSaveBtn() { const b=document.getElementById('saveBtn'); b.textContent='저장하기'; b.classList.remove('saved'); }
+
+function deleteEntry() {
+  if (!currentId||!confirm('이 일기를 삭제할까요?')) return;
+  entries = entries.filter(e=>e.id!==currentId);
+  persist(); newEntry(); showToast('일기가 삭제되었어요.');
+}
+
+function toggleMood(btn, mood) {
+  btn.classList.toggle('selected');
+  if (btn.classList.contains('selected')) selectedMoods.push(mood);
+  else selectedMoods = selectedMoods.filter(m=>m!==mood);
+}
+
+function toDateKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function updateCharCount() { document.getElementById('charCount').textContent = `${document.getElementById('contentTextarea').value.length.toLocaleString()}자`; }
+function persist() { localStorage.setItem('diary_entries', JSON.stringify(entries)); }
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
+// ── PDF ────────────────────────────────────────────────
+function openPdfModal() { updatePdfInfo(); document.getElementById('pdfModal').classList.add('open'); }
+function closePdfModal() { document.getElementById('pdfModal').classList.remove('open'); }
+document.getElementById('pdfRange').addEventListener('change', updatePdfInfo);
+function updatePdfInfo() {
+  const range = document.getElementById('pdfRange').value;
+  const n = getEntriesForRange(range).length;
+  const label = range==='all'?'전체':`최근 ${range}개월`;
+  document.getElementById('pdfInfo').innerHTML = `<strong>${label}</strong> 기간의 일기 <strong>${n}개</strong>가 PDF로 저장됩니다.`;
+}
+function getEntriesForRange(range) {
+  if (range==='all') return [...entries].sort((a,b)=>a.dateKey.localeCompare(b.dateKey));
+  const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth()-parseInt(range));
+  return [...entries].filter(e=>e.dateKey>=toDateKey(cutoff)).sort((a,b)=>a.dateKey.localeCompare(b.dateKey));
+}
+
+async function exportPDF() {
+  const range = document.getElementById('pdfRange').value;
+  const filtered = getEntriesForRange(range);
+  if (!filtered.length) { showToast('해당 기간에 일기가 없어요.'); closePdfModal(); return; }
+  closePdfModal(); showToast('PDF를 생성하고 있어요...');
+
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  const [pW,pH,mL,mR,mT,mB] = [210,297,22,22,28,28];
+  const cW = pW-mL-mR;
+
+  doc.setFillColor(26,20,16); doc.rect(0,0,pW,pH,'F');
+  doc.setDrawColor(200,169,110); doc.setLineWidth(0.4); doc.rect(12,12,pW-24,pH-24);
+  doc.setTextColor(200,169,110); doc.setFontSize(28); doc.setFont('helvetica','bold');
+  doc.text('나의 일기장', pW/2, 110, {align:'center'});
+  doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(160,140,120);
+  doc.text('My Private Diary', pW/2, 122, {align:'center'});
+  doc.setDrawColor(200,169,110); doc.setLineWidth(0.3); doc.line(60,130,pW-60,130);
+  const now = new Date();
+  doc.setFontSize(9); doc.setTextColor(140,120,100);
+  doc.text(range==='all'?'전체 기록':`최근 ${range}개월`, pW/2, 142, {align:'center'});
+  doc.text(`총 ${filtered.length}편`, pW/2, 151, {align:'center'});
+  doc.setFontSize(8); doc.setTextColor(100,90,80);
+  doc.text(`${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일 생성`, pW/2, 270, {align:'center'});
+
+  filtered.forEach((entry,idx) => {
+    doc.addPage();
+    doc.setFillColor(250,246,240); doc.rect(0,0,pW,22,'F');
+    doc.setDrawColor(220,210,200); doc.setLineWidth(0.2); doc.line(0,22,pW,22);
+    doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.setTextColor(139,69,19);
+    doc.text(entry.dateLabel, mL, 14);
+    if (entry.title) { doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(100,90,80); doc.text('│ '+entry.title, mL+doc.getTextWidth(entry.dateLabel)+8, 14); }
+    if (entry.moods&&entry.moods.length) { doc.setFontSize(7.5); doc.setTextColor(140,120,100); doc.text(entry.moods.join('  '), pW-mR, 14, {align:'right'}); }
+    doc.setFontSize(7); doc.setTextColor(180,170,160); doc.text(`${idx+1} / ${filtered.length}`, pW-mR, pH-14, {align:'right'});
+    doc.setDrawColor(232,221,208); doc.setLineWidth(0.15);
+    for (let y=mT+8;y<pH-mB;y+=8) doc.line(mL,y,pW-mR,y);
+    doc.setDrawColor(200,169,110); doc.setLineWidth(0.25); doc.line(mL-4,mT,mL-4,pH-mB);
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(26,20,16);
+    const lines = doc.splitTextToSize(entry.content||'', cW);
+    let y = mT+6;
+    lines.forEach(line => {
+      if (y > pH-mB-8) {
+        doc.addPage();
+        doc.setFillColor(250,246,240); doc.rect(0,0,pW,22,'F');
+        doc.setDrawColor(220,210,200); doc.line(0,22,pW,22);
+        doc.setFontSize(9); doc.setFont('helvetica','italic'); doc.setTextColor(160,140,120);
+        doc.text(entry.dateLabel+' (계속)', mL, 14);
+        doc.setDrawColor(232,221,208); doc.setLineWidth(0.15);
+        for (let ry=mT+8;ry<pH-mB;ry+=8) doc.line(mL,ry,pW-mR,ry);
+        doc.setDrawColor(200,169,110); doc.setLineWidth(0.25); doc.line(mL-4,mT,mL-4,pH-mB);
+        y=mT+6; doc.setFontSize(10); doc.setTextColor(26,20,16); doc.setFont('helvetica','normal');
+      }
+      doc.text(line,mL,y); y+=8;
+    });
+    doc.setFontSize(7); doc.setTextColor(180,170,160);
+    doc.text(entry.updatedAt?`수정: ${entry.updatedAt.slice(0,10)}`:`작성: ${(entry.createdAt||entry.dateKey).slice(0,10)}`, mL, pH-14);
+  });
+
+  doc.addPage();
+  doc.setFillColor(26,20,16); doc.rect(0,0,pW,pH,'F');
+  doc.setDrawColor(200,169,110); doc.setLineWidth(0.4); doc.rect(12,12,pW-24,pH-24);
+  doc.setFontSize(9); doc.setTextColor(100,90,80); doc.text('End of Diary', pW/2, pH/2, {align:'center'});
+
+  doc.save(`나의일기장_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.pdf`);
+  showToast(`PDF 저장 완료! (${filtered.length}편)`);
+}
+
+init();
+</script>
+</body>
+</html>
